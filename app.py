@@ -1,207 +1,212 @@
-from flask import Flask, render_template_string, request, redirect, url_for, session
-import json, os
+import os
+import sqlite3
+import hashlib
+from flask import Flask, request, render_template_string, redirect, url_for, session
 
 app = Flask(__name__)
-app.secret_key = 'super_secret_master_key'
-DATA_FILE = 'passwords.json'
-CONFIG_FILE = 'config.json'
+app.secret_key = os.environ.get("SECRET_KEY", "super-secret-vault-key-2026")
 
-def get_master_pin():
-    if not os.path.exists(CONFIG_FILE): return '1234'
-    with open(CONFIG_FILE, 'r') as f:
-        try: return json.load(f).get('pin', '1234')
-        except: return '1234'
+DB_FILE = "passwords.db"
+HASH_FILE = "master.hash"
 
-def set_master_pin(new_pin):
-    with open(CONFIG_FILE, 'w') as f: json.dump({'pin': new_pin}, f)
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS vault (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    service TEXT NOT NULL,
+                    username TEXT NOT NULL,
+                    password TEXT NOT NULL
+                )''')
+    conn.commit()
+    conn.close()
 
-def load_passwords():
-    if not os.path.exists(DATA_FILE): return []
-    with open(DATA_FILE, 'r') as f:
-        try: return json.load(f)
-        except: return []
+if not os.path.exists(HASH_FILE):
+    with open(HASH_FILE, "w") as f:
+        f.write(hashlib.sha256("1234".encode()).hexdigest())
 
-def save_passwords(data):
-    with open(DATA_FILE, 'w') as f: json.dump(data, f, indent=4)
+init_db()
 
-HTML_TEMPLATE = """
+def verify_pin(pin):
+    if not os.path.exists(HASH_FILE):
+        return False
+    with open(HASH_FILE, "r") as f:
+        stored_hash = f.read().strip()
+    return hashlib.sha256(pin.encode()).hexdigest() == stored_hash
+
+BASE_LAYOUT = """
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Apni Security Suite</title>
+    <title>Apni Security Suite v9.0</title>
     <style>
-        body { background: #0b0f19; color: #00f2fe; font-family: sans-serif; padding: 15px; text-align: center; }
-        .card { background: rgba(255, 255, 255, 0.05); border: 1px solid #00f2fe; border-radius: 8px; padding: 15px; margin-bottom: 15px; }
-        h1 { font-size: 20px; text-shadow: 0 0 10px #00f2fe; }
-        input { width: 85%; padding: 10px; margin: 6px 0; border-radius: 5px; border: 1px solid #00f2fe; background: #000; color: #fff; text-align: center; font-size: 15px; box-sizing: border-box; }
-        .btn { background: linear-gradient(45deg, #4facfe, #00f2fe); border: none; color: #000; padding: 12px; width: 85%; margin: 8px 0; font-weight: bold; border-radius: 5px; cursor: pointer; font-size: 15px; }
-        .btn-bio { background: linear-gradient(45deg, #00ff88, #00f2fe); color: #000; }
-        .btn-danger { background: #ff4757; color: #fff; }
-        .btn-sm { background: #00f2fe; border: none; color: #000; padding: 4px 10px; font-weight: bold; border-radius: 3px; cursor: pointer; font-size: 12px; margin-left: 5px; }
-        .vault-item { background: rgba(0, 242, 254, 0.1); border: 1px solid #00f2fe; padding: 10px; border-radius: 5px; margin-bottom: 10px; text-align: left; font-family: monospace; }
-        .vault-item p { margin: 6px 0; word-break: break-all; }
-        .label { color: #fff; font-weight: bold; }
-        .val { color: #00ff88; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0b1120; color: #e2e8f0; margin: 0; padding: 15px; }
+        .navbar { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 12px 18px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .brand { font-size: 18px; font-weight: bold; color: #38bdf8; text-decoration: none; }
+        .menu-container { position: relative; display: inline-block; }
+        .three-dots { font-size: 24px; cursor: pointer; color: #38bdf8; background: none; border: none; padding: 0 10px; }
+        .dropdown-menu { display: none; position: absolute; right: 0; top: 35px; background-color: #1e293b; min-width: 180px; box-shadow: 0px 8px 16px rgba(0,0,0,0.5); border-radius: 8px; z-index: 10; overflow: hidden; border: 1px solid #334155; }
+        .dropdown-menu a { color: #f8fafc; padding: 12px 16px; text-decoration: none; display: block; font-size: 14px; border-bottom: 1px solid #334155; }
+        .dropdown-menu a:hover { background-color: #0284c7; }
+        .card { background: #1e293b; padding: 20px; border-radius: 12px; margin-top: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .btn { width: 100%; padding: 12px; margin-top: 10px; background: linear-gradient(135deg, #0ea5e9, #0284c7); border: none; color: white; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 15px; }
+        .btn-back { background: #475569; margin-bottom: 15px; display: inline-block; text-align: center; text-decoration: none; width: auto; padding: 8px 16px; color: white; border-radius: 6px; font-weight: bold; }
+        input { width: 100%; padding: 12px; margin: 8px 0; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: white; box-sizing: border-box; }
+        .vault-item { background: #0f172a; padding: 12px; margin-bottom: 10px; border-radius: 8px; border-left: 4px solid #38bdf8; }
     </style>
+    <script>
+        function toggleMenu() {
+            var menu = document.getElementById("myDropdown");
+            menu.style.display = (menu.style.display === "block") ? "none" : "block";
+        }
+        window.onclick = function(event) {
+            if (!event.target.matches('.three-dots')) {
+                var dropdowns = document.getElementsByClassName("dropdown-menu");
+                for (var i = 0; i < dropdowns.length; i++) {
+                    dropdowns[i].style.display = "none";
+                }
+            }
+        }
+    </script>
 </head>
 <body>
-    <div class="card">
-        <h1>APNI SECURITY SUITE v9.0</h1>
-        <p>Status: <span style="color:#00ff88;">HTTPS WEB_AUTHN SECURE</span></p>
-    </div>
-
-    {% if not authenticated %}
-    <div class="card">
-        <h3>BIOMETRIC HARDWARE LOCK</h3>
-        <button type="button" class="btn btn-bio" onclick="scanBio()">Scan Fingerprint / Face</button>
-        <div id="bio-status" style="margin-top:10px; color:#ff4757; font-size:13px;"></div>
-
-        <form id="bioForm" action="/bio_login" method="POST" style="display:none;">
-            <input type="hidden" name="auth_token" value="SUCCESS">
-        </form>
-
-        <hr style="border: 0.5px solid rgba(0,242,254,0.3); margin: 20px 0;">
-
-        <h4>OR USE MASTER PIN</h4>
-        <form action="/login" method="POST">
-            <input type="password" name="pin" placeholder="Enter PIN (Default: 1234)" required><br>
-            <button type="submit" class="btn">Unlock with PIN</button>
-        </form>
-        {% if error %}<p style="color:red;">{{ error }}</p>{% endif %}
-    </div>
-
-    <script>
-    async function scanBio() {
-        let status = document.getElementById('bio-status');
-        if (!window.PublicKeyCredential) {
-            status.innerText = "Error: Hardware biometric not supported!";
-            return;
-        }
-        try {
-            const challenge = new Uint8Array(32);
-            window.crypto.getRandomValues(challenge);
-            
-            await navigator.credentials.create({
-                publicKey: {
-                    challenge: challenge,
-                    rp: { name: "Apni Security Suite" },
-                    user: {
-                        id: new Uint8Array(16),
-                        name: "user",
-                        displayName: "User"
-                    },
-                    pubKeyCredParams: [{type: "public-key", alg: -7}],
-                    authenticatorSelection: { authenticatorAttachment: "platform" },
-                    timeout: 60000
-                }
-            });
-            document.getElementById('bioForm').submit();
-        } catch (err) {
-            status.innerText = "Fingerprint Cancelled or Failed!";
-        }
-    }
-    </script>
-    {% else %}
-    <div style="text-align:right; margin-bottom: 10px;">
-        <a href="/logout" style="color:#ff4757; text-decoration:none; font-weight:bold;">[ Logout ]</a>
-    </div>
-
-    <div class="card">
-        <h3>SAVE NEW PASSWORD</h3>
-        <form action="/add" method="POST">
-            <input type="text" name="service" placeholder="App / Website (e.g. Instagram)" required><br>
-            <input type="text" name="username" placeholder="Username / Email" required><br>
-            <input type="password" name="password" placeholder="Secret Password" required><br>
-            <button type="submit" class="btn">Save to Vault</button>
-        </form>
-    </div>
-
-    <div class="card">
-        <h3>SAVED PASSWORDS</h3>
-        {% if items %}
-            {% for item in items %}
-                <div class="vault-item">
-                    <p><span class="label">App:</span> <span class="val">{{ item.service }}</span></p>
-                    <p><span class="label">User:</span> <span class="val">{{ item.username }}</span></p>
-                    <p>
-                        <span class="label">Pass:</span> 
-                        <span class="val" id="pass-{{ loop.index }}">••••••••</span>
-                        <button class="btn-sm" onclick="togglePass('{{ loop.index }}', '{{ item.password }}')">Show/Hide</button>
-                    </p>
-                </div>
-            {% endfor %}
-        {% else %}
-            <p style="color:#aaa;">Abhi koi password saved nahi hai.</p>
+    <div class="navbar">
+        <a href="/" class="brand">🔒 APNI SECURITY SUITE</a>
+        {% if session.get('unlocked') %}
+        <div class="menu-container">
+            <button class="three-dots" onclick="toggleMenu()">⋮</button>
+            <div id="myDropdown" class="dropdown-menu">
+                <a href="/passwords">📂 View Passwords</a>
+                <a href="/add">➕ Add Password</a>
+                <a href="/change-pin">🔑 Change Master PIN</a>
+                <a href="/logout" style="color: #ef4444;">🚪 Lock Vault</a>
+            </div>
+        </div>
         {% endif %}
     </div>
-
     <div class="card">
-        <h3>CHANGE MASTER PIN</h3>
-        <form action="/change_pin" method="POST">
-            <input type="password" name="old_pin" placeholder="Current Master PIN" required><br>
-            <input type="password" name="new_pin" placeholder="New Master PIN" required><br>
-            <button type="submit" class="btn btn-danger">Update Master PIN</button>
-        </form>
-        {% if msg %}<p style="color:#00ff88;">{{ msg }}</p>{% endif %}
-        {% if pin_error %}<p style="color:red;">{{ pin_error }}</p>{% endif %}
+        {% block content %}{% endblock %}
     </div>
-
-    <script>
-    function togglePass(id, realPass) {
-        let elem = document.getElementById('pass-' + id);
-        if (elem.innerText === '••••••••') elem.innerText = realPass;
-        else elem.innerText = '••••••••';
-    }
-    </script>
-    {% endif %}
 </body>
 </html>
 """
 
-@app.route('/')
+@app.route("/", methods=["GET", "POST"])
 def home():
-    authenticated = session.get('authenticated', False)
-    items = load_passwords() if authenticated else []
-    return render_template_string(HTML_TEMPLATE, authenticated=authenticated, items=items)
+    error = None
+    if request.method == "POST":
+        pin = request.form.get("pin")
+        if verify_pin(pin):
+            session['unlocked'] = True
+            return redirect(url_for('view_passwords'))
+        else:
+            error = "Invalid Master PIN!"
+            
+    if session.get('unlocked'):
+        return redirect(url_for('view_passwords'))
+        
+    html = BASE_LAYOUT.replace("{% block content %}{% endblock %}", """
+        <h2 style="text-align: center; color: #38bdf8;">BIOMETRIC / PIN LOCK</h2>
+        {% if error %}<p style="color: #ef4444; text-align: center;">{{ error }}</p>{% endif %}
+        <form method="POST">
+            <input type="password" name="pin" placeholder="Enter Master PIN (Default: 1234)" required>
+            <button type="submit" class="btn">Unlock Vault</button>
+        </form>
+    """)
+    return render_template_string(html, error=error)
 
-@app.route('/login', methods=['POST'])
-def login():
-    if request.form.get('pin') == get_master_pin():
-        session['authenticated'] = True
+@app.route("/passwords")
+def view_passwords():
+    if not session.get('unlocked'):
         return redirect(url_for('home'))
-    return render_template_string(HTML_TEMPLATE, authenticated=False, error="Wrong PIN!")
+        
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT service, username, password FROM vault")
+    records = c.fetchall()
+    conn.close()
+    
+    html = BASE_LAYOUT.replace("{% block content %}{% endblock %}", """
+        <h3>📁 Saved Passwords</h3>
+        {% if not records %}
+            <p style="color: #94a3b8;">No passwords saved yet.</p>
+        {% endif %}
+        {% for item in records %}
+            <div class="vault-item">
+                <strong style="color: #38bdf8;">{{ item[0] }}</strong><br>
+                <span>User: {{ item[1] }}</span><br>
+                <span>Pass: {{ item[2] }}</span>
+            </div>
+        {% endfor %}
+    """)
+    return render_template_string(html, records=records)
 
-@app.route('/bio_login', methods=['POST'])
-def bio_login():
-    if request.form.get('auth_token') == 'SUCCESS':
-        session['authenticated'] = True
-    return redirect(url_for('home'))
+@app.route("/add", methods=["GET", "POST"])
+def add_password():
+    if not session.get('unlocked'):
+        return redirect(url_for('home'))
+        
+    msg = None
+    if request.method == "POST":
+        service = request.form.get("service")
+        username = request.form.get("username")
+        password = request.form.get("password")
+        
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute("INSERT INTO vault (service, username, password) VALUES (?, ?, ?)", (service, username, password))
+        conn.commit()
+        conn.close()
+        return redirect(url_for('view_passwords'))
 
-@app.route('/logout')
-def logout():
-    session.pop('authenticated', None)
-    return redirect(url_for('home'))
+    html = BASE_LAYOUT.replace("{% block content %}{% endblock %}", """
+        <a href="/passwords" class="btn-back">← Back</a>
+        <h3>➕ Add New Password</h3>
+        <form method="POST">
+            <input type="text" name="service" placeholder="Service / App Name (e.g., Instagram)" required>
+            <input type="text" name="username" placeholder="Username / Email" required>
+            <input type="password" name="password" placeholder="Password" required>
+            <button type="submit" class="btn">Save Password</button>
+        </form>
+    """)
+    return render_template_string(html)
 
-@app.route('/add', methods=['POST'])
-def add():
-    if session.get('authenticated'):
-        s, u, p = request.form.get('service'), request.form.get('username'), request.form.get('password')
-        if s and u and p:
-            pwd = load_passwords()
-            pwd.append({'service': s, 'username': u, 'password': p})
-            save_passwords(pwd)
-    return redirect(url_for('home'))
-
-@app.route('/change_pin', methods=['POST'])
+@app.route("/change-pin", methods=["GET", "POST"])
 def change_pin():
-    if not session.get('authenticated'): return redirect(url_for('home'))
-    old, new = request.form.get('old_pin'), request.form.get('new_pin')
-    items = load_passwords()
-    if old == get_master_pin():
-        set_master_pin(new)
-        return render_template_string(HTML_TEMPLATE, authenticated=True, items=items, msg="PIN Successfully Updated!")
-    return render_template_string(HTML_TEMPLATE, authenticated=True, items=items, pin_error="Old PIN Incorrect!")
+    if not session.get('unlocked'):
+        return redirect(url_for('home'))
+        
+    msg = None
+    if request.method == "POST":
+        old_pin = request.form.get("old_pin")
+        new_pin = request.form.get("new_pin")
+        
+        if verify_pin(old_pin):
+            with open(HASH_FILE, "w") as f:
+                f.write(hashlib.sha256(new_pin.encode()).hexdigest())
+            msg = "Master PIN Updated Successfully!"
+        else:
+            msg = "Incorrect Old PIN!"
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    html = BASE_LAYOUT.replace("{% block content %}{% endblock %}", """
+        <a href="/passwords" class="btn-back">← Back</a>
+        <h3>🔑 Change Master PIN</h3>
+        {% if msg %}<p style="color: #38bdf8; text-align: center;">{{ msg }}</p>{% endif %}
+        <form method="POST">
+            <input type="password" name="old_pin" placeholder="Current Master PIN" required>
+            <input type="password" name="new_pin" placeholder="New Master PIN" required>
+            <button type="submit" class="btn">Update PIN</button>
+        </form>
+    """)
+    return render_template_string(html, msg=msg)
+
+@app.route("/logout")
+def logout():
+    session.pop('unlocked', None)
+    return redirect(url_for('home'))
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+
