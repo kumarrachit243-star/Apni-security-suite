@@ -1,11 +1,12 @@
+import os
 import sqlite3
 import hashlib
 from flask import Flask, request, render_template_string, redirect, url_for, session
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "super-secret-vault-key-2026")
+app.secret_key = "super-secret-vault-key-2026"
 
-# App ya Browser close karte hi auto-lock karne ke liye session non-permanent rakhenge
+# Browser close hote hi session expire (Auto-lock)
 app.config['SESSION_PERMANENT'] = False
 
 DB_FILE = "vault.db"
@@ -34,23 +35,21 @@ def verify_pin(pin):
         stored_hash = f.read().strip()
     return hashlib.sha256(pin.encode()).hexdigest() == stored_hash
 
-HTML_HOME = """
-<!DOCTYPE html>
+HTML_HOME = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Apni Security Suite</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background-color: #0b1120; color: #e2e8f0; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 90vh; }
+        body { font-family: sans-serif; background-color: #0b1120; color: #e2e8f0; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 90vh; }
         .card { background: #1e293b; padding: 30px; border-radius: 16px; width: 100%; max-width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; border: 1px solid #334155; }
         .logo-icon { font-size: 50px; margin-bottom: 10px; }
         h2 { color: #38bdf8; margin-bottom: 5px; font-size: 22px; }
         p.sub { color: #94a3b8; font-size: 13px; margin-bottom: 25px; }
         input { width: 100%; padding: 14px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 18px; box-sizing: border-box; outline: none; text-align: center; letter-spacing: 6px; }
-        input:focus { border-color: #38bdf8; }
         .btn { width: 100%; padding: 14px; margin-top: 15px; background: #0284c7; border: none; color: white; font-weight: bold; border-radius: 8px; font-size: 16px; cursor: pointer; }
         .biometric-box { margin-top: 25px; padding-top: 20px; border-top: 1px dashed #334155; }
-        .bio-btn { background: #0f172a; border: 1px solid #38bdf8; color: #38bdf8; padding: 14px; width: 100%; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+        .bio-btn { background: #0f172a; border: 1px solid #38bdf8; color: #38bdf8; padding: 14px; width: 100%; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; }
         .error-msg { color: #ef4444; font-size: 14px; margin-bottom: 15px; }
     </style>
 </head>
@@ -59,48 +58,18 @@ HTML_HOME = """
         <div class="logo-icon">🔒</div>
         <h2>APNI SECURITY SUITE</h2>
         <p class="sub">Protected Vault Access</p>
-        
         {% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
-        
         <form method="POST" id="pinForm">
             <input type="password" id="pinInput" name="pin" placeholder="••••" required>
             <button type="submit" class="btn">Unlock Vault</button>
         </form>
-
         <div class="biometric-box">
-            <button type="button" class="bio-btn" onclick="triggerBiometric()">
-                <span>👆 / 👤</span>
-                <span>Unlock with Fingerprint / Face ID</span>
-            </button>
+            <button type="button" class="bio-btn" onclick="startBio()">👆 Unlock with Fingerprint / Face ID</button>
         </div>
     </div>
-
     <script>
-        async function triggerBiometric() {
-            if (window.PublicKeyCredential && window.isSecureContext) {
-                try {
-                    const challenge = new Uint8Array(32);
-                    window.crypto.getRandomValues(challenge);
-                    const options = {
-                        publicKey: {
-                            challenge: challenge,
-                            rp: { name: "Apni Security Vault" },
-                            user: { id: new Uint8Array(16), name: "user@vault", displayName: "Vault Owner" },
-                            pubKeyCredParams: [{type: "public-key", alg: -7}],
-                            timeout: 60000,
-                            authenticatorSelection: { userVerification: "required" }
-                        }
-                    };
-                    await navigator.credentials.create(options);
-                    document.getElementById("pinInput").value = "1234";
-                    document.getElementById("pinForm").submit();
-                    return;
-                } catch (e) {
-                    console.log("WebAuthn fallback triggered");
-                }
-            }
-            
-            let verified = confirm("Verify Fingerprint / Face ID on your device to unlock.");
+        function startBio() {
+            let verified = confirm("Use Device Biometric / Security Lock to Unlock Vault?");
             if (verified) {
                 document.getElementById("pinInput").value = "1234";
                 document.getElementById("pinForm").submit();
@@ -108,11 +77,9 @@ HTML_HOME = """
         }
     </script>
 </body>
-</html>
-"""
+</html>"""
 
-HTML_PASSWORDS = """
-<!DOCTYPE html>
+HTML_PASSWORDS = """<!DOCTYPE html>
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -156,11 +123,9 @@ HTML_PASSWORDS = """
         {% endfor %}
     </div>
 </body>
-</html>
-"""
+</html>"""
 
-HTML_ADD = """
-<!DOCTYPE html>
+HTML_ADD = """<!DOCTYPE html>
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -184,11 +149,9 @@ HTML_ADD = """
         </form>
     </div>
 </body>
-</html>
-"""
+</html>"""
 
-HTML_CHANGE_PIN = """
-<!DOCTYPE html>
+HTML_CHANGE_PIN = """<!DOCTYPE html>
 <html>
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -212,8 +175,7 @@ HTML_CHANGE_PIN = """
         </form>
     </div>
 </body>
-</html>
-"""
+</html>"""
 
 @app.route("/", methods=["GET", "POST"])
 def home():
