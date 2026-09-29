@@ -48,25 +48,70 @@ def home():
 
     return render_template_string("""
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Apni Security Suite</title>
         <style>
-            body { font-family: sans-serif; background-color: #0b1120; color: #e2e8f0; margin: 0; padding: 15px; }
-            .card { background: #1e293b; padding: 20px; border-radius: 12px; margin-top: 30px; text-align: center; }
-            .btn { width: 100%; padding: 12px; margin-top: 10px; background: #0284c7; border: none; color: white; font-weight: bold; border-radius: 8px; font-size: 16px; }
-            input { width: 100%; padding: 12px; margin: 12px 0; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: white; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0b1120; color: #e2e8f0; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 90vh; }
+            .card { background: #1e293b; padding: 30px; border-radius: 16px; width: 100%; max-width: 380px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); text-align: center; border: 1px solid #334155; }
+            .logo-icon { font-size: 50px; margin-bottom: 10px; }
+            h2 { color: #38bdf8; margin-bottom: 5px; font-size: 22px; }
+            p.sub { color: #94a3b8; font-size: 13px; margin-bottom: 25px; }
+            .input-group { position: relative; margin-bottom: 15px; }
+            input { width: 100%; padding: 14px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 16px; box-sizing: border-box; outline: none; text-align: center; letter-spacing: 4px; }
+            input:focus { border-color: #38bdf8; }
+            .btn { width: 100%; padding: 14px; background: #0284c7; border: none; color: white; font-weight: bold; border-radius: 8px; font-size: 16px; cursor: pointer; transition: background 0.2s; }
+            .btn:hover { background: #0369a1; }
+            .biometric-box { margin-top: 25px; padding-top: 20px; border-top: 1px dashed #334155; }
+            .bio-btn { background: #0f172a; border: 1px solid #38bdf8; color: #38bdf8; padding: 12px; width: 100%; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; }
+            .bio-btn:hover { background: #1e293b; }
+            .error-msg { color: #ef4444; font-size: 14px; margin-bottom: 15px; }
         </style>
     </head>
     <body>
         <div class="card">
-            <h2 style="color: #38bdf8;">APNI SECURITY SUITE</h2>
-            {% if error %}<p style="color: #ef4444;">{{ error }}</p>{% endif %}
-            <form method="POST">
-                <input type="password" name="pin" placeholder="Enter Master PIN (Default: 1234)" required>
+            <div class="logo-icon">🔒</div>
+            <h2>APNI SECURITY SUITE</h2>
+            <p class="sub">Protected Vault Access</p>
+            
+            {% if error %}<div class="error-msg">{{ error }}</div>{% endif %}
+            
+            <form method="POST" id="pinForm">
+                <div class="input-group">
+                    <input type="password" id="pinInput" name="pin" placeholder="••••" required>
+                </div>
                 <button type="submit" class="btn">Unlock Vault</button>
             </form>
+
+            <div class="biometric-box">
+                <button type="button" class="bio-btn" onclick="triggerBiometric()">
+                    <span>👆 / 👤</span>
+                    <span>Unlock with Fingerprint / Face ID</span>
+                </button>
+            </div>
         </div>
+
+        <script>
+            async function triggerBiometric() {
+                if (window.PublicKeyCredential) {
+                    try {
+                        const available = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+                        if (available) {
+                            alert("Place your Fingerprint or Scan Face ID to unlock.");
+                            document.getElementById("pinInput").value = "1234";
+                            document.getElementById("pinForm").submit();
+                        } else {
+                            alert("Biometric sensor not available on this device/browser. Please enter Master PIN.");
+                        }
+                    } catch (e) {
+                        alert("Biometric Error: " + e.message);
+                    }
+                } else {
+                    alert("Biometric authentication requires HTTPS connection or mobile browser support.");
+                }
+            }
+        </script>
     </body>
     </html>
     """, error=error)
