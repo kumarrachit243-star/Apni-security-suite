@@ -1,4 +1,3 @@
- os
 import sqlite3
 import hashlib
 from flask import Flask, request, render_template_string, redirect, url_for, session
@@ -63,4 +62,4 @@ def home():
             input:focus { border-color: #38bdf8; }
             .btn { width: 100%; padding: 14px; background: #0284c7; border: none; color: white; font-weight: bold; border-radius: 8px; font-size: 16px; cursor: pointer; transition: background 0.2s; }
             .btn:hover { background: #0369a1; }
-            .biometric-box { margin-top: 25px; padding-top: 20px; border-top: 1px dashed #334155; }
+            .biometric-box { margin-top: 25px; padding
